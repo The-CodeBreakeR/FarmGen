@@ -19,7 +19,7 @@ tags
 
 const int initial_center_memo_size = 100000;
 const int initial_receiver_memo_size = 100000;
-const int period_adjuster_to_update_center = 2; // TODO better adjustment maybe?
+const int period_adjuster_to_update_center = 1;
 
 int* generate_task(int complexity, int memo_size, int* memo)
 {
@@ -149,7 +149,9 @@ int* process_task(int task_size, int* task) // TODO some randomness in processin
 	int* rt = (int*) malloc(sizeof(int) * 2);
 	double t1 = MPI_Wtime();
 	double t2 = t1;
-	while(t2 - t1 < task[0])
+	srand(time(0));
+	int randomness = (rand() % 7) - 3;
+	while(t2 - t1 < task[0] + randomness)
 		t2 = MPI_Wtime();
 	rt[0] = 1;
 	rt[1] = 23; // means the task is done
