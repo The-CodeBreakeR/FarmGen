@@ -1,3 +1,20 @@
+/* TODO plans for the rest of the project / more detailed milestones:
+
+   -change the return type of task-gen, and process functions to a better defined structure (containing the task itself and the additional/config info) [milestone 3]
+   -change the data structure of the task itself to something better than an array of ints [milestone 3]
+   -try to fetch out parameters from the center/workers functions and add them to configuration (separate policy from mechanism) [milestone 4]
+   	* when worker sends emergency msg to center
+	*
+	*
+   -python code to generate them all [milestone 2]
+   -seems developing complicated examples is not the priority [milestone 5]
+   	*having the task just indicate how much time should be elapsed (and maybe some dummy memory to see how the communication works for big data)
+   -(not required) receiver could also send feedbacks from processed results to center [milestone 3]
+   */
+
+/* DONE targets:
+   */
+
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,10 +41,13 @@ const int period_adjuster_to_update_center = 1;
 int* generate_task(int complexity, int memo_size, int* memo)
 {
 	int* rt = (int*) malloc(sizeof(int) * 3);
+
+	// takes some time to generate a task
 	double t1 = MPI_Wtime();
 	double t2 = t1;
 	while(t2 - t1 < 1.0)
 		t2 = MPI_Wtime();
+
 	memo[0]++;
 	if(memo[0] < 10)
 		rt[0] = 0;
@@ -144,15 +164,18 @@ void center(int world_size, int world_rank)
 	free(memo);
 }
 
-int* process_task(int task_size, int* task) // TODO some randomness in processing time maybe?
+int* process_task(int task_size, int* task)
 {
 	int* rt = (int*) malloc(sizeof(int) * 2);
+
+	// taks some time with some randomness to process the task
 	double t1 = MPI_Wtime();
 	double t2 = t1;
 	srand(time(0));
 	int randomness = (rand() % 7) - 3;
 	while(t2 - t1 < task[0] + randomness)
 		t2 = MPI_Wtime();
+
 	rt[0] = 1;
 	rt[1] = 23; // means the task is done
 	return rt;
@@ -239,7 +262,7 @@ void receiver(int world_size, int world_rank)
 			int* result = (int*) malloc(sizeof(int) * result_size);
 			MPI_Recv(result, result_size, MPI_INT, msg_source, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			int* return_val = process_result(result_size, result, memo_size, memo);
-			if(return_val[0] == 1) //  more memory requested
+			if(return_val[0] == 1) // more memory requested
 			{
 				int* more_memo = (int*) realloc(memo, 2 * memo_size * sizeof(int));
      				if (more_memo != NULL)
