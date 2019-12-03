@@ -1,19 +1,23 @@
 /* TODO plans for the rest of the project / more detailed milestones:
-
-   -change the return type of task-gen, and process functions to a better defined structure (containing the task itself and the additional/config info) [milestone 3]
-   -change the data structure of the task itself to something better than an array of ints [milestone 3]
-   -try to fetch out parameters from the center/workers functions and add them to configuration (separate policy from mechanism) [milestone 4]
-   	* when worker sends emergency msg to center
-	*
-	*
    -python code to generate them all [milestone 2]
-   -seems developing complicated examples is not the priority [milestone 5]
-   	*having the task just indicate how much time should be elapsed (and maybe some dummy memory to see how the communication works for big data)
-   -(not required) receiver could also send feedbacks from processed results to center [milestone 3]
-   */
+   -try to fetch out parameters from the center/workers functions and add them to configuration (separate policy from mechanism) [milestone 4]
+ 	* when worker sends emergency msg to center
+ 	*
+ 	*
+ */
 
 /* DONE targets:
-   */
+   -change the return type of task-gen, and process functions to a better defined structure (containing the task itself and the additional/config info) [milestone 3]
+   -change the data structure of the task itself to something better than an array of ints [milestone 3]
+   -add analysis structure and possiblity for receiver to send feedbacks from processed results to center [milestone 3 & 4]
+   -add dummy memory to tasks and result to check its effects on performance and communication [milestone 5]
+   	*with dummy memory and estimated elapsed time we can create as complicated examples for the system as needed
+	*complexity comes from different memory requirement and runtime since logic should be maintained by user
+	*therefore this milestone is done
+   -try to fetch out parameters from the center/workers functions and add them to configuration (separate policy from mechanism) [milestone 4]
+   	*send_analysis_to_center
+   -
+ */
 
 #include <mpi.h>
 #include <stdio.h>
@@ -23,13 +27,14 @@
 #include <stdbool.h>
 
 /*
-tags
+   tags
 0: regular task (center -> servers)
 1: regular result (servers -> receiver)
 2: emergency task request (servers -> center)
 3: update center (receiver -> center)
-4: finish (center -> all)
-*/
+4: finish (center -> all , servers -> receiver)
+5: regular analysis (receiver -> center)
+ */
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) > (y)) ? (y) : (x))
@@ -37,36 +42,117 @@ tags
 const int initial_center_memo_size = 100000;
 const int initial_receiver_memo_size = 100000;
 const int period_adjuster_to_update_center = 1;
+const bool send_analysis_to_center = true;
 
-int* generate_task(int complexity, int memo_size, int* memo)
+
+typedef enum {INITIAL, MIDDLE, FINAL} Stage;
+
+// DEFAULT: sample Task struct with estimated runtime and dummy data
+typedef struct Task 
 {
-	int* rt = (int*) malloc(sizeof(int) * 3);
+	int estimated_time;
+	// data inside is not important for the logic
+	// it is just to check the performance of communication with big size tasks
+	int dummy_data[];
+} Task;
 
+// DEFAULT: sample Task struct with dummy data
+typedef struct Result
+{
+	bool invalid_task;
+	// data inside is not important for the logic
+	// it is just to check the performance of communication with big size tasks
+	int dummy_data[];
+} Result;
+
+// DEFAULT: sample Analysis struct
+typedef struct Analysis
+{
+	bool means_nothing; // always true here :)
+} Analysis;
+
+// includes task and more info which is returned by generate_task function
+typedef struct TaskPack
+{
+	bool no_more_task;
+	bool need_more_memo;
+	Stage stage;
+	int task_size; // number of bytes
+	Task* task;
+} TaskPack;
+
+// includes result and more info which is returned by process_task function
+typedef struct ResultPack
+{
+	int result_size;
+	Result* result;
+} ResultPack;
+
+// includes analysis and more info which is returned by process_result function
+typedef struct AnalysisPack
+{
+	bool need_more_memo;	
+	bool send_to_center; // send analysis to center or not
+	int analysis_size;
+	Analysis* analysis;
+} AnalysisPack;
+
+// structure used by center and sent to generate_task to use updates from receiver
+typedef struct node {
+	Analysis* analysis;
+	struct node * next;
+} AnalysisNode;
+
+
+/* DEFAULT: sample generate_task function which runs for 100 rounds and 
+   generates task containing the time that should be elapsed for processing it and some dummy data */
+TaskPack* generate_task(int complexity, int memo_size, int* memo, AnalysisNode* firstAnalysisNode)
+{
 	// takes some time to generate a task
 	double t1 = MPI_Wtime();
 	double t2 = t1;
 	while(t2 - t1 < 1.0)
 		t2 = MPI_Wtime();
 
-	memo[0]++;
-	if(memo[0] < 10)
-		rt[0] = 0;
-	else if(memo[0] > 90)
-		rt[0] = 2;
-	else if(memo[0] == 50)
-		rt[0] = 3;
-	else
-		rt[0] = 1;
+	// here memo 0 indicates the number of the task
+	memo[0]++; 
+	TaskPack* taskpack = (TaskPack*) malloc(sizeof(TaskPack));
+
+	// if no more task then announce it, else give the task
+	// in this example of generate_task function we assume we have 100 tasks
 	if(memo[0] > 100)
-		rt[1] = -1;
+		taskpack -> no_more_task = true;
 	else
 	{
-		rt[1] = 1;
-		rt[2] = 6 * complexity;
+		taskpack -> no_more_task = false;
+		// just add dummy data to task to make it bigger and see how it affects the performance
+		int num_of_dummy_ints = 10000;
+		taskpack -> task_size = sizeof(Task) + num_of_dummy_ints * sizeof(int);
+		taskpack -> task = (Task*) malloc(taskpack -> task_size);
+		taskpack -> task -> estimated_time = 6 * complexity;
+		int ii = 0;
+		for(ii = 0; ii < num_of_dummy_ints; ii++)
+			taskpack -> task -> dummy_data[ii] = 10 * ii;
 	}
-	return rt;
+
+	// make a request in round #50 just to test how more memory request works
+	if(memo[0] == 50)
+		taskpack -> need_more_memo = true;
+	else
+		taskpack -> need_more_memo = false;
+
+	// fix the stage
+	if(memo[0] < 10)
+		taskpack -> stage = INITIAL;
+	else if(memo[0] < 90)
+		taskpack -> stage = MIDDLE;
+	else
+		taskpack -> stage = FINAL;
+
+	return taskpack;
 }
 
+// select a server with estimated least task remained to do the next task
 int select_server_for_task(int world_size, int* given_tasks, int* receiver_updates, int* emergency_updates)
 {
 	int current_server = 0, least_remained = 0; // server with least tasks remained
@@ -80,60 +166,89 @@ int select_server_for_task(int world_size, int* given_tasks, int* receiver_updat
 	return current_server;
 }
 
+// TODO few parameters can be fetched from here for the configuration
 // sets the complexity: an integer between 1 and 10
-int set_task_complexity(int stage, int least_remained, int prev_complexity)
+int set_task_complexity(Stage stage, int least_remained, int prev_complexity)
 {
+	// complexity of next task is related to the least remained task among all processes
 	int comp = (int)(log(least_remained + 1)) + 1;
-	if(stage == 2)
+	/* since we want workers to finish at approximately the same time
+	   if it was final stages we don't want to assign big tasks even if we had time to do so */
+	if(stage == FINAL)
 		comp = MIN(comp, 2);
+	// to prevent the complexity from changing drastically
+	// comp = (comp + prev_complexity) / 2;
 	return MIN(comp, 10);
 }
 
+// the center
 void center(int world_size, int world_rank)
 {
 	bool task_left = true;
-	// 0 means initial stages, 1 is middle stages, 2 is final stages
-	int stage = 0;
+	Stage stage = INITIAL;
+	int complexity = set_task_complexity(stage, 0, 1);
+	// keeping the number of task given and done for computing complexity and task assignment
 	int* given_tasks = (int*) calloc(world_size, sizeof(int));
 	int* receiver_updates = (int*) calloc(world_size, sizeof(int));		
 	int* emergency_updates = (int*) calloc(world_size, sizeof(int));
-	int complexity = set_task_complexity(stage, 0, 0);
+	// memory used by generate_task function
 	int memo_size = initial_center_memo_size;
 	int* memo = (int*) calloc(memo_size, sizeof(int));
+	// linked memory for analysis received from receiver
+	AnalysisNode* firstAnalysisNode = NULL;
 	while(task_left)
 	{
+		if(send_analysis_to_center && stage != INITIAL) // check for analysis from receiver
+		{
+			int flag = 0;
+			MPI_Status status;
+			MPI_Iprobe(world_size - 1, 5, MPI_COMM_WORLD, &flag, &status);
+			if(flag) // analysis from receiver received
+			{
+				printf("from process %d: received analysis from receiver\n", world_rank);
+				int analysis_size;
+				MPI_Get_count(&status, MPI_BYTE, &analysis_size);
+				Analysis* analysis = (Analysis*) malloc(analysis_size);
+				MPI_Recv(analysis, analysis_size, MPI_BYTE, world_size - 1, 5, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				AnalysisNode* newAnalysisNode = (AnalysisNode*) malloc(sizeof(AnalysisNode));
+				newAnalysisNode -> analysis = analysis;
+				newAnalysisNode -> next = firstAnalysisNode;
+				firstAnalysisNode = newAnalysisNode;
+			}
+		}
 		//generate the task
-		int* return_val = generate_task(complexity, memo_size, memo);
-		if(return_val[0] < 3) // update on stage
-			stage = return_val[0];
-		if(return_val[0] == 3) //  more memory requested
+		TaskPack* taskpack = generate_task(complexity, memo_size, memo, firstAnalysisNode);
+		if(taskpack -> no_more_task) // no more task is remained
+		{
+			// let everybody know center is finished
+			int ii = 1, signal = -1;
+			for(ii = 1; ii < world_size; ii++)
+				MPI_Send(&signal, 1, MPI_INT, ii, 4, MPI_COMM_WORLD);				
+			task_left = false;
+			free(taskpack);	
+			continue;
+		}
+		stage = taskpack -> stage; // update on stage
+		if(taskpack -> need_more_memo) //  more memory requested
 		{
 			int* more_memo = (int*) realloc(memo, 2 * memo_size * sizeof(int));
 			if (more_memo != NULL)
 			{
 				memo_size *= 2;	
-       				memo = more_memo;
+				memo = more_memo;
 			}
-     			else
+			else
 				printf ("Error! Could not allocate more memory :(\n");
 		}
-		if(return_val[1] == -1) // no more task is remained
-		{
-			int ii = 1;
-			for(ii = 1; ii < world_size; ii++)
-				MPI_Send(&(return_val[1]), 1, MPI_INT, ii, 4, MPI_COMM_WORLD);				
-			task_left = false;
-			free(return_val);			
-			continue;
-		}
-		int task_size = return_val[1];
-		int* task = &(return_val[2]);
+		int task_size = taskpack -> task_size;
+		Task* task = taskpack -> task;
 		// assign a server to generated task
-		int assigned_server = -1;				
+		int assigned_server = -1;
 		int flag = 0;
 		MPI_Status status;
-    		MPI_Iprobe(MPI_ANY_SOURCE, 2, MPI_COMM_WORLD, &flag, &status);
-		if(flag) // emergency task request received
+		MPI_Iprobe(MPI_ANY_SOURCE, 2, MPI_COMM_WORLD, &flag, &status);
+		// if emergency task request is received: give next task to sender
+		if(flag)
 		{
 			int msg_source = status.MPI_SOURCE;
 			int sendtime;
@@ -142,21 +257,27 @@ void center(int world_size, int world_rank)
 			assigned_server = msg_source; // we surely want this server to get the next task
 			printf("from process %d: received emergency task request from server %d\n", world_rank, msg_source);			
 		}
-		if(assigned_server == -1)
+		// else: see if there is any updates on finished tasks and give the task to server with estimated least remained tasks
+		else
 		{
-    			MPI_Iprobe(world_size - 1, 3, MPI_COMM_WORLD, &flag, &status);
+			MPI_Iprobe(world_size - 1, 3, MPI_COMM_WORLD, &flag, &status);
 			if(flag) // update from receiver received
 				MPI_Recv(receiver_updates, world_size, MPI_INT, world_size - 1, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			assigned_server = select_server_for_task(world_size, given_tasks, receiver_updates, emergency_updates);
-			printf("receiver updates %d %d %d %d %d\n", receiver_updates[1], receiver_updates[2], receiver_updates[3], receiver_updates[4], receiver_updates[5]);
+			printf("from process %d: receiver updates %d %d %d %d %d\n", 
+					world_rank, receiver_updates[1], receiver_updates[2], receiver_updates[3], receiver_updates[4], receiver_updates[5]);
 		}
-		MPI_Send(task, task_size, MPI_INT, assigned_server, 0, MPI_COMM_WORLD);
+		// send the task to the assigned server
+		MPI_Send(task, task_size, MPI_BYTE, assigned_server, 0, MPI_COMM_WORLD);
 		printf("from process %d: task %d with complexity %d assigned to server %d\n", world_rank, memo[0], complexity, assigned_server);
-		// least tasks remained among all servers
+		/* least tasks remained among all servers
+		   computed before updating given_tasks[assigned_server] */
 		int least_remained = given_tasks[assigned_server] - MAX(receiver_updates[assigned_server], emergency_updates[assigned_server]);
 		complexity = set_task_complexity(stage, least_remained, complexity);		
 		given_tasks[assigned_server]++;
-		free(return_val);
+		if(task_size > 0)
+			free(task);		
+		free(taskpack);
 	}
 	free(given_tasks);
 	free(receiver_updates);
@@ -164,23 +285,43 @@ void center(int world_size, int world_rank)
 	free(memo);
 }
 
-int* process_task(int task_size, int* task)
+/* DEFAULT: sample process_task function which checks validity of task's dummy data, 
+   elapses the estimated_time with some randomness and creates another dummy data */
+ResultPack* process_task(int task_size, Task* task)
 {
-	int* rt = (int*) malloc(sizeof(int) * 2);
+	ResultPack* resultpack = (ResultPack*) malloc(sizeof(ResultPack));	
 
 	// taks some time with some randomness to process the task
 	double t1 = MPI_Wtime();
 	double t2 = t1;
 	srand(time(0));
 	int randomness = (rand() % 7) - 3;
-	while(t2 - t1 < task[0] + randomness)
+	while(t2 - t1 < task -> estimated_time + randomness)
 		t2 = MPI_Wtime();
 
-	rt[0] = 1;
-	rt[1] = 23; // means the task is done
-	return rt;
+	int num_of_dummy_ints = 10000;
+	resultpack -> result_size = sizeof(Result) + (num_of_dummy_ints / 10) * sizeof(int);
+	resultpack -> result = (Result*) malloc(resultpack -> result_size);
+	resultpack -> result -> invalid_task = false;
+
+	// check if the dummy data is acutally received correctly	
+	int ii = 0;
+	for(ii = 0; ii < num_of_dummy_ints; ii++)
+		if(task -> dummy_data[ii] != 10 * ii)
+		{
+			printf("ERROR: data sent to server is not correct");
+			resultpack -> result -> invalid_task = true;
+			break;
+		}
+
+	// add dummy data to the result
+	for(ii = 0; ii < num_of_dummy_ints / 10; ii++)
+		resultpack -> result -> dummy_data[ii] = 10 * ii;
+
+	return resultpack;
 }
 
+// the server
 void server(int world_size, int world_rank)
 {
 	bool task_left = true;
@@ -188,8 +329,8 @@ void server(int world_size, int world_rank)
 	{
 		int flag = 0;
 		MPI_Status status;
-    		MPI_Iprobe(0, MPI_ANY_TAG, MPI_COMM_WORLD, &flag, &status);
-		if(!flag)
+		MPI_Iprobe(0, MPI_ANY_TAG, MPI_COMM_WORLD, &flag, &status);
+		if(!flag) // no message or task is left
 		{
 			int now = (int) time(NULL); 
 			// send emergency task request to center including the current time
@@ -201,34 +342,47 @@ void server(int world_size, int world_rank)
 		// if no other task is going to be assigned
 		if(msg_tag == 4)
 		{
+			//let the receiver know that the process is finished
+			int signal = -1;
+			MPI_Send(&signal, 1, MPI_INT, world_size - 1, 4, MPI_COMM_WORLD);			
 			task_left = false;
 			continue;
 		}
-		// regular task given in int datatype
+		// regular task given
 		else if(msg_tag == 0)
 		{
 			int task_size;
-			MPI_Get_count(&status, MPI_INT, &task_size);
-			int* task = (int*) malloc(sizeof(int) * task_size);
-			MPI_Recv(task, task_size, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			printf("server %d received task with volume %d\n", world_rank, task[0]);			
-			int* return_val = process_task(task_size, task);
-			int result_size = return_val[0];
-			int* result = &(return_val[1]);
-			MPI_Send(result, result_size, MPI_INT, world_size - 1, 1, MPI_COMM_WORLD);
-			free(task);
-			free(return_val);
+			MPI_Get_count(&status, MPI_BYTE, &task_size);
+			Task* task = (Task*) malloc(task_size);
+			MPI_Recv(task, task_size, MPI_BYTE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			printf("server %d received task with estimated runtime %d\n", world_rank, task -> estimated_time);			
+			ResultPack* resultpack = process_task(task_size, task);
+			int result_size = resultpack -> result_size;
+			Result* result = resultpack -> result;
+			// send result of the task to receiver
+			MPI_Send(result, result_size, MPI_BYTE, world_size - 1, 1, MPI_COMM_WORLD);
+			if(task_size > 0)
+				free(task);
+			if(result_size > 0)
+				free(result);
+			free(resultpack);
 		}
 	}
 }
 
-int* process_result(int result_size, int* result, int memo_size, int* memo)
+// DEFAULT: sample process_result function which sends a meaningless analysis without the need for sending it to center or allocating more memo
+AnalysisPack* process_result(int result_size, Result* result, int memo_size, int* memo)
 {
-	int* rt = (int*) malloc(sizeof(int));
-	rt[0] = 0;
-	return rt;
+	AnalysisPack* analysispack = (AnalysisPack*) malloc(sizeof(AnalysisPack));
+	analysispack -> need_more_memo = false;
+	analysispack -> send_to_center = true;
+	analysispack -> analysis_size = sizeof(Analysis);
+	analysispack -> analysis = (Analysis*) malloc(analysispack -> analysis_size);
+	analysispack -> analysis -> means_nothing = true;
+	return analysispack;
 }
 
+// the receiver
 void receiver(int world_size, int world_rank)
 {
 	bool task_left = true;
@@ -238,44 +392,63 @@ void receiver(int world_size, int world_rank)
 	int* tasks_finished_by_servers = (int*) calloc(world_size, sizeof(int));
 	int total_tasks_finished = 0;
 	int number_of_tasks_to_update_center = world_size * period_adjuster_to_update_center;
+	int number_of_finished_processes = 0;
 	while(task_left)
 	{
 		MPI_Status status;
-    		MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+		MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 		int msg_source = status.MPI_SOURCE;
 		int msg_tag = status.MPI_TAG;
-		// if no other task is going to be assigned
+		// means one process is finished
 		if(msg_tag == 4)
 		{
-			task_left = false;
-			continue;
+			int signal;
+			MPI_Recv(&signal, 1, MPI_INT, msg_source, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);			
+			number_of_finished_processes++;
+			printf("from process %d: process %d is finished\n", world_rank, msg_source);
+			// if all other processes were finished receiver is also finished
+			if(number_of_finished_processes == world_size - 1)
+			{
+				printf("from process %d: all processes are done\n", world_rank);
+				task_left = false;
+			}
+			continue;			
 		}
-		// regular result given in int datatype
+		// regular result given
 		else if(msg_tag == 1)
 		{
 			total_tasks_finished++;
 			tasks_finished_by_servers[msg_source]++;
-			if(total_tasks_finished % number_of_tasks_to_update_center == 0 && total_tasks_finished > 0) // update center
-				MPI_Send(tasks_finished_by_servers, world_size, MPI_INT, 0, 3, MPI_COMM_WORLD);				
+			// update center every once in a while
+			if(total_tasks_finished % number_of_tasks_to_update_center == 0 && total_tasks_finished > 0)
+				MPI_Send(tasks_finished_by_servers, world_size, MPI_INT, 0, 3, MPI_COMM_WORLD);
+
 			int result_size;
-			MPI_Get_count(&status, MPI_INT, &result_size);
-			int* result = (int*) malloc(sizeof(int) * result_size);
-			MPI_Recv(result, result_size, MPI_INT, msg_source, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			int* return_val = process_result(result_size, result, memo_size, memo);
-			if(return_val[0] == 1) // more memory requested
+			MPI_Get_count(&status, MPI_BYTE, &result_size);
+			Result* result = (Result*) malloc(result_size);			
+			MPI_Recv(result, result_size, MPI_BYTE, msg_source, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			AnalysisPack* analysispack = process_result(result_size, result, memo_size, memo);
+			int analysis_size = analysispack -> analysis_size;
+			Analysis* analysis = analysispack -> analysis;
+			if(analysispack -> need_more_memo) // more memory requested
 			{
 				int* more_memo = (int*) realloc(memo, 2 * memo_size * sizeof(int));
-     				if (more_memo != NULL)
+				if (more_memo != NULL)
 				{
 					memo_size *= 2;					
-       					memo = more_memo;
+					memo = more_memo;
 				}
-     				else
+				else
 					printf ("Error! Could not allocate more memory :(\n");
 			}
-			// TODO do something with the processed result, probably final analysis or sending msg to center
-			free(result);
-			free(return_val);
+			// send analysis to center if allowed and needed
+			if(send_analysis_to_center && analysispack -> send_to_center)
+				MPI_Send(analysis, analysis_size, MPI_BYTE, 0, 5, MPI_COMM_WORLD);
+			if(result_size > 0)
+				free(result);
+			if(analysis_size > 0)
+				free(analysis);
+			free(analysispack);
 		}
 	}
 	free(memo);
@@ -284,6 +457,7 @@ void receiver(int world_size, int world_rank)
 
 int main(int argc, char** argv)
 {
+	//	printf("%d\n", sizeof(X));
 	// Initialize the MPI environment
 	MPI_Init(&argc, &argv);
 
