@@ -1,9 +1,5 @@
 /* TODO plans for the rest of the project / more detailed milestones:
    -python code to generate them all [milestone 2]
-   -try to fetch out parameters from the center/workers functions and add them to configuration (separate policy from mechanism) [milestone 4]
- 	* when worker sends emergency msg to center
- 	*
- 	*
  */
 
 /* DONE targets:
@@ -16,6 +12,7 @@
 	*therefore this milestone is done
    -try to fetch out parameters from the center/workers functions and add them to configuration (separate policy from mechanism) [milestone 4]
    	*send_analysis_to_center
+	* algorithm pushing, pulling, combination, combthenpull
    -
  */
 
@@ -39,13 +36,23 @@
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) > (y)) ? (y) : (x))
 
+typedef enum {INITIAL, MIDDLE, FINAL} Stage;
+
+/*
+push: center pushes job to servers based on information it has
+pull: servers ask for new job
+combination: both pull and push (pull is priority)
+combthenpull: starts with a combination but final stage is only pull
+ */
+typedef enum {PUSH, PULL, COMBINATION, COMBTHENPULL} SchedulingAlgorithm;
+
+
 const int initial_center_memo_size = 100000;
 const int initial_receiver_memo_size = 100000;
 const int period_adjuster_to_update_center = 1;
 const bool send_analysis_to_center = true;
+const SchedulingAlgorithm scheduling_algorithm = COMBINATION;
 
-
-typedef enum {INITIAL, MIDDLE, FINAL} Stage;
 
 // DEFAULT: sample Task struct with estimated runtime and dummy data
 typedef struct Task 
@@ -246,7 +253,13 @@ void center(int world_size, int world_rank)
 		int assigned_server = -1;
 		int flag = 0;
 		MPI_Status status;
-		MPI_Iprobe(MPI_ANY_SOURCE, 2, MPI_COMM_WORLD, &flag, &status);
+		if(scheduling_algorithm == PULL || (scheduling_algorithm == COMBTHENPULL && stage == FINAL)) // wait until emergency request is received
+		{
+			MPI_Probe(MPI_ANY_SOURCE, 2, MPI_COMM_WORLD, &status);
+			flag = 1;
+		}
+		else if(scheduling_algorithm != PUSH) // check if emergency request has arrived
+			MPI_Iprobe(MPI_ANY_SOURCE, 2, MPI_COMM_WORLD, &flag, &status);
 		// if emergency task request is received: give next task to sender
 		if(flag)
 		{
@@ -329,15 +342,21 @@ void server(int world_size, int world_rank)
 	{
 		int flag = 0;
 		MPI_Status status;
-		MPI_Iprobe(0, MPI_ANY_TAG, MPI_COMM_WORLD, &flag, &status);
-		if(!flag) // no message or task is left
+		// if scheduling is push-based, no need for emergency request
+		if(scheduling_algorithm != PUSH)
 		{
-			int now = (int) time(NULL); 
-			// send emergency task request to center including the current time
-			MPI_Send(&now, 1, MPI_INT, 0, 2, MPI_COMM_WORLD);
-			// wait until new task comes
-			MPI_Probe(0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+			MPI_Iprobe(0, MPI_ANY_TAG, MPI_COMM_WORLD, &flag, &status);
+			if(!flag) // no message or task is left
+			{
+				int now = (int) time(NULL); 
+				// send emergency task request to center including the current time
+				MPI_Send(&now, 1, MPI_INT, 0, 2, MPI_COMM_WORLD);
+				// wait until new task comes
+				MPI_Probe(0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+			}
 		}
+		else
+			MPI_Probe(0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 		int msg_tag = status.MPI_TAG;
 		// if no other task is going to be assigned
 		if(msg_tag == 4)
@@ -419,10 +438,9 @@ void receiver(int world_size, int world_rank)
 		{
 			total_tasks_finished++;
 			tasks_finished_by_servers[msg_source]++;
-			// update center every once in a while
-			if(total_tasks_finished % number_of_tasks_to_update_center == 0 && total_tasks_finished > 0)
+			// update center every once in a while if scheduling algorithm is not PULL
+			if(scheduling_algorithm != PULL && total_tasks_finished % number_of_tasks_to_update_center == 0 && total_tasks_finished > 0)
 				MPI_Send(tasks_finished_by_servers, world_size, MPI_INT, 0, 3, MPI_COMM_WORLD);
-
 			int result_size;
 			MPI_Get_count(&status, MPI_BYTE, &result_size);
 			Result* result = (Result*) malloc(result_size);			
@@ -457,7 +475,6 @@ void receiver(int world_size, int world_rank)
 
 int main(int argc, char** argv)
 {
-	//	printf("%d\n", sizeof(X));
 	// Initialize the MPI environment
 	MPI_Init(&argc, &argv);
 
