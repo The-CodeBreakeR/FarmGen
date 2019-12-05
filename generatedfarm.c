@@ -48,7 +48,8 @@ const int period_adjuster_to_update_center = 1;
 const bool send_analysis_to_center = true;
 const SchedulingAlgorithm scheduling_algorithm = COMBINATION;
 
-// DEFAULT: sample Task struct with estimated runtime and dummy data
+// comes from task.c
+// Not Default!!!
 typedef struct Task 
 {
 	int estimated_time;
@@ -57,7 +58,8 @@ typedef struct Task
 	int dummy_data[];
 } Task;
 
-// DEFAULT: sample Result struct with dummy data
+// comes from result.c
+// Not Default!!!
 typedef struct Result
 {
 	bool invalid_task;
@@ -66,7 +68,8 @@ typedef struct Result
 	int dummy_data[];
 } Result;
 
-// DEFAULT: sample Analysis struct
+// comes from analysis.c
+// Not Default!!!
 typedef struct Analysis
 {
 	bool means_nothing; // always true here :)
@@ -104,9 +107,8 @@ typedef struct node {
 	struct node * next;
 } AnalysisNode;
 
-
-// DEFAULT: sample generate_task function which runs for 100 rounds and 
-// generates task containing the time that should be elapsed for processing it and some dummy data
+// comes from generate_task.c
+// Not Default!!!
 TaskPack* generate_task(int complexity, int memo_size, int* memo, AnalysisNode* firstAnalysisNode)
 {
 	// takes some time to generate a task
@@ -291,9 +293,8 @@ void center(int world_size, int world_rank)
 	free(memo);
 }
 
-
-// DEFAULT: sample process_task function which checks validity of task's dummy data, 
-// elapses the estimated_time with some randomness and creates another dummy data
+// comes from process_task.c
+// Not Default!!!
 ResultPack* process_task(int task_size, Task* task)
 {
 	ResultPack* resultpack = (ResultPack*) malloc(sizeof(ResultPack));	
@@ -383,8 +384,8 @@ void server(int world_size, int world_rank)
 	}
 }
 
-
-// DEFAULT: sample process_result function which sends a meaningless analysis without the need for sending it to center or allocating more memo
+// comes from process_result.c
+// Not Default!!!
 AnalysisPack* process_result(int result_size, Result* result, int memo_size, int* memo)
 {
 	AnalysisPack* analysispack = (AnalysisPack*) malloc(sizeof(AnalysisPack));

@@ -42,12 +42,73 @@ combthenpull: starts with a combination but final stage is only pull
  */
 typedef enum {PUSH, PULL, COMBINATION, COMBTHENPULL} SchedulingAlgorithm;
 
-const int initial_center_memo_size = 100000;
-const int initial_receiver_memo_size = 100000;
-const int period_adjuster_to_update_center = 1;
-const bool send_analysis_to_center = true;
-const SchedulingAlgorithm scheduling_algorithm = COMBINATION;
+/*[[[cog
+import cog
+file = open("farm.config", "r")
+lines = file.read().splitlines()
 
+initial_center_memo_size = False
+for line in lines:
+	if line.startswith('initial_center_memo_size'):
+		cog.outl("const int %s;" % line)
+		initial_center_memo_size = True
+		break
+if not initial_center_memo_size:
+		cog.outl("const int initial_center_memo_size = 100000;")    
+
+initial_receiver_memo_size = False
+for line in lines:
+	if line.startswith('initial_receiver_memo_size'):
+		cog.outl("const int %s;" % line)
+		initial_receiver_memo_size = True
+		break
+if not initial_receiver_memo_size:
+	cog.outl("const int initial_receiver_memo_size = 100000;")
+
+period_adjuster_to_update_center = False
+for line in lines:
+	if line.startswith('period_adjuster_to_update_center'):
+		cog.outl("const int %s;" % line)
+		period_adjuster_to_update_center = True
+		break
+if not period_adjuster_to_update_center:
+	cog.outl("const int period_adjuster_to_update_center = 1;")
+
+send_analysis_to_center = False
+for line in lines:
+	if line.startswith('send_analysis_to_center'):
+		cog.outl("const bool %s;" % line)
+		send_analysis_to_center = True
+		break
+if not send_analysis_to_center:
+	cog.outl("const bool send_analysis_to_center = true;")
+
+scheduling_algorithm = False
+for line in lines:
+	if line.startswith('scheduling_algorithm'):
+		cog.outl("const SchedulingAlgorithm %s;" % line)
+		scheduling_algorithm = True
+		break
+if not scheduling_algorithm:
+	cog.outl("const SchedulingAlgorithm scheduling_algorithm = COMBINATION;")
+
+new_problem = False
+for line in lines:
+	if line.startswith('new_problem') and line.endswith('true'):
+		new_problem = True
+		break
+
+if new_problem:
+	for line in lines:
+		if line.startswith('Task'):
+			filepath = line.split()[-1]
+			cog.outl("\n// comes from %s" % filepath)
+			codefile = open(filepath, "r")
+			code = codefile.read()
+			cog.outl("%s" % code)
+			break
+else:
+	cog.out("""
 // DEFAULT: sample Task struct with estimated runtime and dummy data
 typedef struct Task 
 {
@@ -56,7 +117,19 @@ typedef struct Task
 	// it is just to check the performance of communication with big size tasks
 	int dummy_data[];
 } Task;
+	""")
 
+if new_problem:
+	for line in lines:
+		if line.startswith('Result'):
+			filepath = line.split()[-1]
+			cog.outl("// comes from %s" % filepath)
+			codefile = open(filepath, "r")
+			code = codefile.read()
+			cog.outl("%s" % code)
+			break
+else:
+	cog.out("""
 // DEFAULT: sample Result struct with dummy data
 typedef struct Result
 {
@@ -65,13 +138,27 @@ typedef struct Result
 	// it is just to check the performance of communication with big size tasks
 	int dummy_data[];
 } Result;
+	""")
 
+if new_problem:
+	for line in lines:
+		if line.startswith('Analysis'):
+			filepath = line.split()[-1]
+			cog.outl("// comes from %s" % filepath)
+			codefile = open(filepath, "r")
+			code = codefile.read()
+			cog.outl("%s" % code)
+			break
+else:
+	cog.out("""
 // DEFAULT: sample Analysis struct
 typedef struct Analysis
 {
 	bool means_nothing; // always true here :)
 } Analysis;
-
+	""")
+]]]*/
+//[[[end]]]
 // includes task and more info which is returned by generate_task function
 typedef struct TaskPack
 {
@@ -104,7 +191,18 @@ typedef struct node {
 	struct node * next;
 } AnalysisNode;
 
-
+/*[[[cog
+if new_problem:
+	for line in lines:
+		if line.startswith('generate_task'):
+			filepath = line.split()[-1]
+			cog.outl("// comes from %s" % filepath)
+			codefile = open(filepath, "r")
+			code = codefile.read()
+			cog.outl("%s" % code)
+			break
+else:
+	cog.out("""
 // DEFAULT: sample generate_task function which runs for 100 rounds and 
 // generates task containing the time that should be elapsed for processing it and some dummy data
 TaskPack* generate_task(int complexity, int memo_size, int* memo, AnalysisNode* firstAnalysisNode)
@@ -152,7 +250,9 @@ TaskPack* generate_task(int complexity, int memo_size, int* memo, AnalysisNode* 
 
 	return taskpack;
 }
-
+	""")
+]]]*/
+//[[[end]]]
 // select a server with estimated least task remained to do the next task
 int select_server_for_task(int world_size, int* given_tasks, int* receiver_updates, int* emergency_updates)
 {
@@ -291,7 +391,18 @@ void center(int world_size, int world_rank)
 	free(memo);
 }
 
-
+/*[[[cog
+if new_problem:
+	for line in lines:
+		if line.startswith('process_task'):
+			filepath = line.split()[-1]
+			cog.outl("// comes from %s" % filepath)
+			codefile = open(filepath, "r")
+			code = codefile.read()
+			cog.outl("%s" % code)
+			break
+else:
+	cog.out("""
 // DEFAULT: sample process_task function which checks validity of task's dummy data, 
 // elapses the estimated_time with some randomness and creates another dummy data
 ResultPack* process_task(int task_size, Task* task)
@@ -327,7 +438,9 @@ ResultPack* process_task(int task_size, Task* task)
 
 	return resultpack;
 }
-
+	""")
+]]]*/
+//[[[end]]]
 // the server
 void server(int world_size, int world_rank)
 {
@@ -383,7 +496,18 @@ void server(int world_size, int world_rank)
 	}
 }
 
-
+/*[[[cog
+if new_problem:
+	for line in lines:
+		if line.startswith('process_result'):
+			filepath = line.split()[-1]
+			cog.outl("// comes from %s" % filepath)
+			codefile = open(filepath, "r")
+			code = codefile.read()
+			cog.outl("%s" % code)
+			break
+else:
+	cog.out("""
 // DEFAULT: sample process_result function which sends a meaningless analysis without the need for sending it to center or allocating more memo
 AnalysisPack* process_result(int result_size, Result* result, int memo_size, int* memo)
 {
@@ -395,7 +519,9 @@ AnalysisPack* process_result(int result_size, Result* result, int memo_size, int
 	analysispack -> analysis -> means_nothing = true;
 	return analysispack;
 }
-
+	""")
+]]]*/
+//[[[end]]]
 // the receiver
 void receiver(int world_size, int world_rank)
 {
