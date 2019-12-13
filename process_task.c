@@ -6,9 +6,9 @@ ResultPack* process_task(int task_size, Task* task)
 	// taks some time with some randomness to process the task
 	double t1 = MPI_Wtime();
 	double t2 = t1;
-	srand(time(0));
-	int randomness = (rand() % 7) - 3;
-	while(t2 - t1 < task -> estimated_time + randomness)
+	srand(task -> task_num);
+	int randomness = (rand() % task -> estimated_time ) - task -> estimated_time / 2;
+	while(t2 - t1 < (double)(task -> estimated_time + randomness) / 100.0)
 		t2 = MPI_Wtime();
 
 	int num_of_dummy_ints = 10000;

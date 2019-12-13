@@ -52,6 +52,7 @@ const SchedulingAlgorithm scheduling_algorithm = COMBINATION;
 typedef struct Task 
 {
 	int estimated_time;
+	int task_num;
 	// data inside is not important for the logic
 	// it is just to check the performance of communication with big size tasks
 	int dummy_data[];
@@ -112,7 +113,7 @@ TaskPack* generate_task(int complexity, int memo_size, int* memo, AnalysisNode* 
 	// takes some time to generate a task
 	double t1 = MPI_Wtime();
 	double t2 = t1;
-	while(t2 - t1 < 1.0)
+	while(t2 - t1 < 1.0 / 100.0)
 		t2 = MPI_Wtime();
 
 	// here memo 0 indicates the number of the task
@@ -120,8 +121,8 @@ TaskPack* generate_task(int complexity, int memo_size, int* memo, AnalysisNode* 
 	TaskPack* taskpack = (TaskPack*) malloc(sizeof(TaskPack));
 
 	// if no more task then announce it, else give the task
-	// in this example of generate_task function we assume we have 100 tasks
-	if(memo[0] > 100)
+	// in this example of generate_task function we assume we have 50 tasks
+	if(memo[0] > 50)
 		taskpack -> no_more_task = true;
 	else
 	{
@@ -136,8 +137,8 @@ TaskPack* generate_task(int complexity, int memo_size, int* memo, AnalysisNode* 
 			taskpack -> task -> dummy_data[ii] = 10 * ii;
 	}
 
-	// make a request in round #50 just to test how more memory request works
-	if(memo[0] == 50)
+	// make a request in the middle round just to test how more memory request works
+	if(memo[0] == 25)
 		taskpack -> need_more_memo = true;
 	else
 		taskpack -> need_more_memo = false;
@@ -145,10 +146,13 @@ TaskPack* generate_task(int complexity, int memo_size, int* memo, AnalysisNode* 
 	// fix the stage
 	if(memo[0] < 10)
 		taskpack -> stage = INITIAL;
-	else if(memo[0] < 90)
+	else if(memo[0] < 40)
 		taskpack -> stage = MIDDLE;
 	else
 		taskpack -> stage = FINAL;
+
+	// to make testing deterministic
+	taskpack -> task -> task_num = memo[0];
 
 	return taskpack;
 }
@@ -268,10 +272,11 @@ void center(int world_size, int world_rank)
 		{
 			MPI_Iprobe(world_size - 1, 3, MPI_COMM_WORLD, &flag, &status);
 			if(flag) // update from receiver received
+			{
 				MPI_Recv(receiver_updates, world_size, MPI_INT, world_size - 1, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				printf("from process %d: received receiver updates\n", world_rank);				
+			}
 			assigned_server = select_server_for_task(world_size, given_tasks, receiver_updates, emergency_updates);
-			printf("from process %d: receiver updates %d %d %d %d %d\n", 
-					world_rank, receiver_updates[1], receiver_updates[2], receiver_updates[3], receiver_updates[4], receiver_updates[5]);
 		}
 		// send the task to the assigned server
 		MPI_Send(task, task_size, MPI_BYTE, assigned_server, 0, MPI_COMM_WORLD);
@@ -301,9 +306,9 @@ ResultPack* process_task(int task_size, Task* task)
 	// taks some time with some randomness to process the task
 	double t1 = MPI_Wtime();
 	double t2 = t1;
-	srand(time(0));
-	int randomness = (rand() % 7) - 3;
-	while(t2 - t1 < task -> estimated_time + randomness)
+	srand(task -> task_num);
+	int randomness = (rand() % task -> estimated_time ) - task -> estimated_time / 2;
+	while(t2 - t1 < (double)(task -> estimated_time + randomness) / 100.0)
 		t2 = MPI_Wtime();
 
 	int num_of_dummy_ints = 10000;
@@ -368,7 +373,7 @@ void server(int world_size, int world_rank)
 			MPI_Get_count(&status, MPI_BYTE, &task_size);
 			Task* task = (Task*) malloc(task_size);
 			MPI_Recv(task, task_size, MPI_BYTE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			printf("server %d received task with estimated runtime %d\n", world_rank, task -> estimated_time);			
+			printf("server %d received task\n", world_rank);
 			ResultPack* resultpack = process_task(task_size, task);
 			int result_size = resultpack -> result_size;
 			Result* result = resultpack -> result;
